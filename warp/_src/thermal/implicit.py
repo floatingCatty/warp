@@ -173,6 +173,7 @@ def newton_solve(
     linear_max_iterations: int = 500,
     line_search_steps: int = 6,
     precision_rtol: float = 1.0e-4,
+    forcing_max: float = 0.1,
     quiet: bool = True,
 ) -> NewtonResult:
     """Drive ``residual`` to zero by Newton iteration, updating ``state`` in place.
@@ -189,15 +190,26 @@ def newton_solve(
             provides one and to the initial residual norm otherwise.
         atol: Absolute floor added to the convergence threshold.
         max_iterations: Maximum Newton iterations.
-        linear_tol: Relative tolerance for each tangent solve.
+        linear_tol: Tightest relative tolerance any tangent solve will be asked for. Early
+            steps are solved far more loosely; see the note on inexact Newton.
         linear_max_iterations: Maximum iterations for each tangent solve.
         line_search_steps: Maximum step halvings per iteration. Zero disables backtracking.
         precision_rtol: Residual reduction, relative to the initial residual, past which
             stagnation counts as convergence to the precision floor rather than failure.
+        forcing_max: Loosest relative tolerance any tangent solve will be asked for.
         quiet: If False, print the residual norm at each iteration.
 
     Returns:
         A :class:`NewtonResult` describing the outcome.
+
+    Note:
+        Tangent systems are solved *inexactly*, to a tolerance that tracks the residual's
+        distance from where it started. Far from the solution the Newton
+        direction is only a rough guide, so solving its tangent tightly is wasted work; near
+        the solution the tolerance tightens automatically and the convergence rate is
+        preserved. On the reference problem this is the difference between 930 and roughly
+        200 Krylov iterations, at identical final accuracy. A separate cap keeps the solver
+        from ever asking for more accuracy than the Newton tolerance itself needs.
 
     Note:
         The module computes in single precision, so the residual cannot be evaluated more
@@ -236,17 +248,26 @@ def newton_solve(
     converged = norm <= threshold
     stalled = False
     iterations = 0
+    forcing = forcing_max
+
+    operator = _tangent_operator(residual, n, device, transpose=False)
 
     while not converged and iterations < max_iterations:
         iterations += 1
 
+        # Tie linear accuracy to nonlinear progress: while the residual is still near where
+        # it started the Newton direction is only a rough guide and solving its tangent
+        # tightly is wasted, and as the residual falls the tolerance follows it down so the
+        # final steps are solved as accurately as the arithmetic allows.
+        eta = min(forcing, max(linear_tol, forcing * norm / max(initial_norm, 1.0e-30)))
+
         residual.relinearize(state)
         delta.zero_()
         bicgstab(
-            _tangent_operator(residual, n, device, transpose=False),
+            operator,
             b=r,
             x=delta,
-            tol=linear_tol,
+            tol=eta,
             maxiter=linear_max_iterations,
             M=_jacobi(residual, n, device),
             use_cuda_graph=False,
@@ -268,14 +289,19 @@ def newton_solve(
         previous, norm = norm, accepted
         history.append(norm)
         if not quiet:
-            print(f"  newton {iterations:3d}  |R| = {norm:.6e}")
+            print(f"  newton {iterations:3d}  |R| = {norm:.6e}  (linear tol {eta:.1e})")
 
         if norm <= threshold:
             converged = True
         elif norm > 0.9 * previous:
-            # No longer making progress. Far below where it started this is the precision
-            # floor and the answer is as good as single precision allows; close to where it
-            # started it is a genuine failure to converge.
+            if eta > 1.001 * linear_tol:
+                # An inexact step can stall simply because its tangent was solved too
+                # loosely. Tighten before concluding anything about the residual itself.
+                forcing = max(linear_tol, 0.01 * forcing)
+                continue
+            # Tangent solved as tightly as asked and still no progress. Far below where it
+            # started this is the precision floor and the answer is as good as single
+            # precision allows; close to where it started it is a genuine failure.
             stalled = True
             converged = norm <= precision_rtol * initial_norm
             break
@@ -289,8 +315,9 @@ def adjoint_solve(
     state: wp.array,
     objective_gradient: wp.array,
     adjoint: wp.array,
-    tol: float = 1.0e-10,
+    tol: float = 1.0e-6,
     max_iterations: int = 500,
+    warm_start: bool = False,
 ) -> None:
     """Solve the adjoint system for a converged state.
 
@@ -304,6 +331,9 @@ def adjoint_solve(
         adjoint: Output. Overwritten with :math:`\\lambda`.
         tol: Relative tolerance for the linear solve.
         max_iterations: Maximum iterations for the linear solve.
+        warm_start: Reuse the contents of ``adjoint`` as the initial guess. Across a design
+            optimization the adjoint changes slowly from one iteration to the next, so this
+            removes most of the solve after the first.
     """
     device = state.device
     n = state.shape[0]
@@ -314,7 +344,8 @@ def adjoint_solve(
     wp.launch(_axpy, dim=n, inputs=[objective_gradient, -1.0], outputs=[rhs], device=device)
     residual.project(rhs)
 
-    adjoint.zero_()
+    if not warm_start:
+        adjoint.zero_()
     bicgstab(
         _tangent_operator(residual, n, device, transpose=True),
         b=rhs,

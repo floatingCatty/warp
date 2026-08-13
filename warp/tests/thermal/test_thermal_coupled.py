@@ -127,7 +127,7 @@ def test_tangent_is_nonsymmetric(test, device):
 
 
 def test_newton_converges(test, device):
-    """Newton must drive the residual to zero, quadratically near the solution."""
+    """Newton must drive the residual to zero and leave a physical temperature field."""
     res = (6, 6)
     density = np.full(res[0] * res[1], 0.8)
     conduction, _, residual = _build(res, 12, 1.0, density, device)
@@ -135,15 +135,52 @@ def test_newton_converges(test, device):
     t, result = _solve(residual, conduction, device)
     test.assertTrue(result.converged, f"Newton did not converge: {result}")
     test.assertLess(result.residual_norm, 1.0e-4 * residual.reference_norm())
+    test.assertGreater(result.initial_norm / result.residual_norm, 1.0e4)
 
-    # Quadratic convergence: once close, each residual is near the square of the previous,
-    # so the drop over the last productive step is far steeper than linear.
+    field = t.numpy()
+    test.assertGreater(field.min(), 0.0)
+
+
+def test_newton_is_quadratic_when_exact(test, device):
+    """Solved exactly, Newton must converge quadratically.
+
+    The default solver deliberately trades this for cheaper steps by solving each tangent
+    only as accurately as the current residual warrants, so the quadratic rate is checked
+    with the forcing sequence disabled. That the two reach the same answer is what
+    ``test_inexact_matches_exact`` covers.
+    """
+    res = (6, 6)
+    density = np.full(res[0] * res[1], 0.8)
+    conduction, _, residual = _build(res, 12, 1.0, density, device)
+
+    t = wp.array(np.full(conduction.node_count, 0.5, dtype=np.float32), dtype=float, device=device)
+    result = thermal.newton_solve(residual, t, max_iterations=40, linear_tol=1.0e-10, forcing_max=1.0e-10)
+
+    # Once close, each residual is near the square of the previous, so the drop over the
+    # last productive step is far steeper than linear.
     productive = [h for h in result.history if h > 1.0e-6]
     test.assertGreater(productive[-2] / productive[-1], 10.0)
 
-    # Temperatures must be physical: positive, with the interior hotter than the rim.
-    field = t.numpy()
-    test.assertGreater(field.min(), 0.0)
+
+def test_inexact_matches_exact(test, device):
+    """Solving tangents inexactly must not move the answer beyond the solver's tolerance.
+
+    Both solves satisfy the same residual criterion, so they land at different points inside
+    the same tolerance ball rather than at identical ones; the check is that the difference
+    stays within that ball and does not grow into a physically different answer.
+    """
+    res = (6, 6)
+    density = np.full(res[0] * res[1], 0.8)
+
+    solutions = []
+    for forcing in (1.0e-10, 0.1):
+        conduction, _, residual = _build(res, 12, 1.0, density, device)
+        t = wp.array(np.full(conduction.node_count, 0.5, dtype=np.float32), dtype=float, device=device)
+        result = thermal.newton_solve(residual, t, max_iterations=40, forcing_max=forcing)
+        test.assertTrue(result.converged, f"Newton did not converge: {result}")
+        solutions.append(t.numpy().astype(np.float64))
+
+    np.testing.assert_allclose(solutions[1], solutions[0], rtol=2.0e-4, atol=1.0e-6)
 
 
 def test_energy_balance(test, device):
@@ -210,10 +247,10 @@ def test_pure_conduction_limit(test, device):
     )
 
     t = wp.zeros(conduction.node_count, dtype=float, device=device)
-    result = thermal.newton_solve(residual, t, max_iterations=10)
+    # Disable the forcing sequence: a linear problem is solved by one *exact* Newton step,
+    # which is the property worth pinning here.
+    result = thermal.newton_solve(residual, t, max_iterations=10, linear_tol=1.0e-10, forcing_max=1.0e-10)
     test.assertTrue(result.converged, f"Newton did not converge: {result}")
-
-    # A linear problem is solved exactly by a single Newton step.
     test.assertEqual(result.iterations, 1)
 
     # Verify against a direct conduction solve.
@@ -304,6 +341,10 @@ add_function_test(
 )
 add_function_test(TestThermalCoupled, "test_tangent_is_nonsymmetric", test_tangent_is_nonsymmetric, devices=devices)
 add_function_test(TestThermalCoupled, "test_newton_converges", test_newton_converges, devices=devices)
+add_function_test(
+    TestThermalCoupled, "test_newton_is_quadratic_when_exact", test_newton_is_quadratic_when_exact, devices=devices
+)
+add_function_test(TestThermalCoupled, "test_inexact_matches_exact", test_inexact_matches_exact, devices=devices)
 add_function_test(TestThermalCoupled, "test_energy_balance", test_energy_balance, devices=devices)
 add_function_test(TestThermalCoupled, "test_pure_conduction_limit", test_pure_conduction_limit, devices=devices)
 add_function_test(

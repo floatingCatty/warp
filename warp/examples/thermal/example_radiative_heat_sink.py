@@ -103,6 +103,7 @@ class Example:
         self.sensitivity = wp.zeros(n_elem, dtype=float, device=device)
         self.element_temperature = wp.zeros(n_elem, dtype=float, device=device)
 
+        self._adjoint_ready = False
         self.history = []
 
     def solve(self):
@@ -121,7 +122,16 @@ class Example:
 
     def gradient(self):
         """Sensitivity of the objective with respect to the design variables."""
-        thermal.adjoint_solve(self.residual, self.temperature, self.objective_gradient, self.adjoint)
+        # The adjoint changes slowly between design iterations, so the previous one is a
+        # far better starting point than zero.
+        thermal.adjoint_solve(
+            self.residual,
+            self.temperature,
+            self.objective_gradient,
+            self.adjoint,
+            warm_start=self._adjoint_ready,
+        )
+        self._adjoint_ready = True
 
         self.adj_conductivity.zero_()
         self.adj_absorptivity.zero_()
