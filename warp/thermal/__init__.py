@@ -18,6 +18,8 @@ Usage:
 # The source-to-public Warp module declarations for `warp.thermal` live in the
 # top-level `warp/__init__.py`, so they are in effect before these imports run.
 
+from warp._src.thermal.volumetric.exchange import ExchangeMatrix as ExchangeMatrix
+from warp._src.thermal.volumetric.operator import VolumetricRadiationOperator as VolumetricRadiationOperator
 from warp._src.thermal.volumetric.paths import EXIT_ADIABATIC as EXIT_ADIABATIC
 from warp._src.thermal.volumetric.paths import EXIT_ENVIRONMENT as EXIT_ENVIRONMENT
 from warp._src.thermal.volumetric.paths import RayPaths as RayPaths
