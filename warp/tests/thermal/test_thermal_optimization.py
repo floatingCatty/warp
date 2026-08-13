@@ -160,6 +160,57 @@ def test_oc_ignores_ascent_directions(test, device):
     test.assertLess(density.numpy()[:5].max(), 1.0e-6)
 
 
+def test_example_objective_gradient(test, device):
+    """The example's dJ/dT must be the derivative of its reported objective.
+
+    This is the one link of the example's chain not already covered: the density VJP is
+    finite-differenced in the coupled tests, the filter transpose has its own adjoint
+    identity, and the SIMP derivatives are analytic. Differencing the objective with respect
+    to the temperature field directly avoids going through the solver, where the objective's
+    response to a design perturbation sits at the single-precision noise floor and a finite
+    difference cannot resolve it.
+    """
+    import warp.examples.thermal.example_radiative_heat_sink as heat_sink
+
+    e = heat_sink.Example(
+        resolution=8, launch_points=1, angles=12, source_width=4, filter_radius=0.2, quiet=True, device=device
+    )
+    rng = np.random.default_rng(211)
+    t = rng.uniform(0.5, 1.5, e.conduction.node_count)
+
+    def objective(field):
+        e.temperature.assign(field.astype(np.float32))
+        return e.objective()
+
+    grad = e.objective_gradient.numpy().astype(np.float64)
+
+    d = rng.normal(size=e.conduction.node_count)
+    d /= np.linalg.norm(d)
+    # The objective is exactly linear in temperature, so a large step carries no truncation
+    # error and keeps single-precision noise from dominating the difference quotient.
+    h = 0.25
+    fd = (objective(t + h * d) - objective(t - h * d)) / (2.0 * h)
+    test.assertAlmostEqual(float(grad @ d), fd, delta=1.0e-5 * max(abs(fd), 1.0e-6))
+
+
+def test_example_objective_is_an_integral(test, device):
+    """The reported objective must be the temperature integral, not its mean.
+
+    The reference result this example is compared against is an integral over the target
+    region, so a mean would differ from it by the region's volume and invite a false
+    conclusion either way.
+    """
+    import warp.examples.thermal.example_radiative_heat_sink as heat_sink
+
+    e = heat_sink.Example(
+        resolution=8, launch_points=1, angles=12, source_width=4, filter_radius=0.2, quiet=True, device=device
+    )
+    e.temperature.assign(np.full(e.conduction.node_count, 2.0, dtype=np.float32))
+
+    expected = 2.0 * e.objective_mask.sum() * e.conduction.element_volume
+    test.assertAlmostEqual(e.objective(), expected, delta=1.0e-9)
+
+
 devices = get_test_devices()
 
 
@@ -191,6 +242,15 @@ add_function_test(
 )
 add_function_test(
     TestThermalOptimization, "test_oc_ignores_ascent_directions", test_oc_ignores_ascent_directions, devices=devices
+)
+add_function_test(
+    TestThermalOptimization, "test_example_objective_gradient", test_example_objective_gradient, devices=devices
+)
+add_function_test(
+    TestThermalOptimization,
+    "test_example_objective_is_an_integral",
+    test_example_objective_is_an_integral,
+    devices=devices,
 )
 
 

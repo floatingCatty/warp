@@ -26,7 +26,8 @@
 #     reflected, modelling a symmetry plane or an insulated mounting surface.
 #
 # Optimization:
-#   - Minimize the mean temperature over the heat source, subject to a volume constraint.
+#   - Minimize the temperature integrated over the heat source, subject to a volume
+#     constraint. Reported in the reference paper's units so the two compare directly.
 #   - Sensitivities come from an implicit adjoint of the converged nonlinear solve, so their
 #     cost does not grow with the number of Newton iterations.
 #   - Densities are filtered with a cone kernel to impose a minimum length scale, and updated
@@ -85,10 +86,12 @@ class Example:
         self.objective_mask = source.copy()
         self.residual.set_volumetric_source(wp.array(source, dtype=float, device=device))
 
-        # dJ/dT for J = mean temperature over the source region.
-        weight = source / max(source.sum(), 1.0) / self.conduction.element_volume
+        # J integrates temperature over the target region, so dJ/dT is exactly the region
+        # indicator scattered to the nodes.
         self.objective_gradient = wp.zeros(self.conduction.node_count, dtype=float, device=device)
-        self.conduction.scatter_element_source(wp.array(weight, dtype=float, device=device), self.objective_gradient)
+        self.conduction.scatter_element_source(
+            wp.array(self.objective_mask, dtype=float, device=device), self.objective_gradient
+        )
 
         self.density = wp.array(np.full(n_elem, volume_fraction, dtype=np.float32), dtype=float, device=device)
         self.filtered = wp.zeros(n_elem, dtype=float, device=device)
@@ -115,10 +118,16 @@ class Example:
         return thermal.newton_solve(self.residual, self.temperature, max_iterations=40)
 
     def objective(self):
-        """Mean temperature over the heat source region."""
+        """Temperature integrated over the heat source region.
+
+        This is the integral rather than the mean, matching the reference formulation, so
+        the value can be compared with a published result without a conversion factor. The
+        optimality criteria update normalizes the sensitivity through its multiplier, so the
+        choice of scale does not affect the design trajectory.
+        """
         self.conduction.element_average(self.temperature, self.element_temperature)
         t = self.element_temperature.numpy().astype(np.float64)
-        return float((t * self.objective_mask).sum() / self.objective_mask.sum())
+        return float((t * self.objective_mask).sum() * self.conduction.element_volume)
 
     def gradient(self):
         """Sensitivity of the objective with respect to the design variables."""
@@ -218,6 +227,16 @@ if __name__ == "__main__":
         )
         final = example.run(iterations=args.iterations)
         print(f"final objective: {final:.6e}")
+
+        # Published value for the default configuration, for comparison.
+        if (
+            args.resolution == 60
+            and args.conduction_radiation_number == 1.0
+            and args.volume_fraction == 0.3
+            and args.filter_radius == 0.05
+        ):
+            reference = 6.9041e-4
+            print(f"reference value: {reference:.6e}  (difference {100 * (final - reference) / reference:+.2f}%)")
 
         if args.save:
             example.save(args.save)

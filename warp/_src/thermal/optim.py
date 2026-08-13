@@ -33,6 +33,8 @@ negligible next to one radiation solve.
 
 from __future__ import annotations
 
+import math
+
 import warp as wp
 
 __all__ = ["optimality_criteria_step"]
@@ -103,14 +105,18 @@ def optimality_criteria_step(
     total = wp.zeros(1, dtype=float, device=device)
     target = volume_fraction * n
 
-    low, high = multiplier_bounds
+    # Bisect on the logarithm. The multiplier is a price per unit volume whose magnitude
+    # follows the sensitivity's, which changes with the objective's scale and by orders of
+    # magnitude over an optimization; bisecting linearly across a bracket spanning that many
+    # decades resolves small multipliers to nothing and lets the volume constraint drift.
+    low, high = math.log(multiplier_bounds[0]), math.log(multiplier_bounds[1])
     for _ in range(bisection_iterations):
         mid = 0.5 * (low + high)
 
         wp.launch(
             _candidate,
             dim=n,
-            inputs=[density, sensitivity, mid, move, eta, lower, upper],
+            inputs=[density, sensitivity, math.exp(mid), move, eta, lower, upper],
             outputs=[candidate],
             device=device,
         )
@@ -123,7 +129,7 @@ def optimality_criteria_step(
         else:
             high = mid
 
-    multiplier = 0.5 * (low + high)
+    multiplier = math.exp(0.5 * (low + high))
     wp.launch(
         _candidate,
         dim=n,
