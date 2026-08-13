@@ -252,6 +252,7 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
     from warp.tests.test_verify_fp import TestVerifyFP
     from warp.tests.test_version import TestVersion
     from warp.tests.thermal.test_thermal_conduction import TestThermalConduction
+    from warp.tests.thermal.test_thermal_coupled import TestThermalCoupled
     from warp.tests.thermal.test_thermal_grid import TestThermalGrid
     from warp.tests.thermal.test_thermal_operator import TestThermalOperator
     from warp.tests.thermal.test_thermal_transport import TestThermalTransport
@@ -426,6 +427,7 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestTemplateLaunchBounds,
         TestTexture,
         TestThermalConduction,
+        TestThermalCoupled,
         TestThermalGrid,
         TestThermalOperator,
         TestThermalTransport,

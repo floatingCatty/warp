@@ -229,6 +229,13 @@ Every operator is verified independently before anything is built on it:
 - **Mutation testing.** Each verification suite is checked by injecting the defect it exists
   to catch and confirming it fails.
 
+A limit worth stating: the module computes in single precision, so the residual cannot be
+evaluated more accurately than roughly `1e-6` relative. Newton converges quadratically down to
+that floor and then stalls, which is why convergence is measured relative to the initial
+residual and stagnation is reported rather than iterated against. This is ample for
+gradient-based design, where the finite-difference checks agree to a few percent, but it rules
+out asking the solver for tighter residuals without a double-precision path.
+
 Device coverage follows `get_test_devices()`. Note that all measurements recorded here were
 taken on CPU; the assembled apply is bandwidth-bound and the march is register-bound, so the
 backend crossover may move on GPU and should be re-measured.
@@ -239,7 +246,7 @@ backend crossover may move on GPU and should be re-measured.
 | --------- | -------------------------------------------------------------- | ----------- |
 | M2        | Radiative transport primitive and its adjoint                   | Done        |
 | M2b       | Forward/adjoint strategy split; implicit grid ray bundles       | Done        |
-| M1        | Conduction operator; coupled nonlinear solve; implicit adjoint  | In progress |
+| M1        | Conduction operator; coupled nonlinear solve; implicit adjoint  | Done        |
 | M3        | Reproduce the reference 2D radiative heat sink                  | Planned     |
 | M4        | Regime B: explicit deformed geometry, surface radiation         | Planned     |
 | M5        | Gray radiosity; deployable radiator demonstration               | Planned     |
