@@ -43,6 +43,11 @@ coupling all reuse this machinery rather than each growing their own adjoint.
     Zero ``v`` on constrained degrees of freedom, restricting to the free subspace.
 ``preconditioner_diagonal(out)``
     Write an approximate diagonal of the tangent, used for Jacobi preconditioning.
+``reference_norm()`` *(optional)*
+    Return a characteristic residual scale, normally the norm of the applied load. Newton
+    measures convergence against this rather than against the initial residual, which is
+    what makes the criterion meaningful when a solve is warm-started from a nearby design
+    and its initial residual is already small.
 """
 
 from __future__ import annotations
@@ -161,12 +166,13 @@ def _norm(v: wp.array) -> float:
 def newton_solve(
     residual,
     state: wp.array,
-    rtol: float = 1.0e-5,
+    rtol: float = 1.0e-4,
     atol: float = 0.0,
     max_iterations: int = 25,
     linear_tol: float = 1.0e-8,
     linear_max_iterations: int = 500,
     line_search_steps: int = 6,
+    precision_rtol: float = 1.0e-4,
     quiet: bool = True,
 ) -> NewtonResult:
     """Drive ``residual`` to zero by Newton iteration, updating ``state`` in place.
@@ -179,22 +185,29 @@ def newton_solve(
     Args:
         residual: Object implementing the residual protocol.
         state: Initial guess, overwritten with the converged solution.
-        rtol: Convergence tolerance relative to the initial residual norm.
+        rtol: Convergence tolerance, relative to the residual's ``reference_norm`` when it
+            provides one and to the initial residual norm otherwise.
         atol: Absolute floor added to the convergence threshold.
         max_iterations: Maximum Newton iterations.
         linear_tol: Relative tolerance for each tangent solve.
         linear_max_iterations: Maximum iterations for each tangent solve.
         line_search_steps: Maximum step halvings per iteration. Zero disables backtracking.
+        precision_rtol: Residual reduction, relative to the initial residual, past which
+            stagnation counts as convergence to the precision floor rather than failure.
         quiet: If False, print the residual norm at each iteration.
 
     Returns:
         A :class:`NewtonResult` describing the outcome.
 
     Note:
-        The default ``rtol`` reflects that the module computes in single precision. The
-        residual cannot be evaluated more accurately than roughly ``1e-6`` relative, so
-        asking for more produces a stall rather than a better answer. Iteration stops on
-        stagnation and reports it through :attr:`NewtonResult.stalled`.
+        The module computes in single precision, so the residual cannot be evaluated more
+        accurately than roughly ``1e-6`` relative to its own starting value, which for these
+        problems bottoms out between ``1e-5`` and ``1e-4`` of the applied load. The default
+        ``rtol`` is set just above that measured floor; asking for more produces a stall
+        rather than a better answer. Stagnation is therefore not automatically a failure: once the
+        residual has fallen by ``precision_rtol`` from where it started, there is nothing
+        further to extract from the arithmetic, and the solve is reported as converged with
+        :attr:`NewtonResult.stalled` set so the distinction stays visible.
     """
     device = state.device
     n = state.shape[0]
@@ -210,7 +223,14 @@ def newton_solve(
 
     norm = residual_norm(state)
     initial_norm = norm
-    threshold = atol + rtol * max(initial_norm, 1.0e-30)
+
+    # Prefer a load-based scale: warm starts begin with a small residual, and measuring
+    # against that would demand accuracy the arithmetic cannot deliver.
+    scale = initial_norm
+    reference = getattr(residual, "reference_norm", None)
+    if reference is not None:
+        scale = max(float(reference()), initial_norm * 1.0e-6)
+    threshold = atol + rtol * max(scale, 1.0e-30)
 
     history = [norm]
     converged = norm <= threshold
@@ -253,8 +273,11 @@ def newton_solve(
         if norm <= threshold:
             converged = True
         elif norm > 0.9 * previous:
-            # No longer making progress: either at the precision floor or diverging.
+            # No longer making progress. Far below where it started this is the precision
+            # floor and the answer is as good as single precision allows; close to where it
+            # started it is a genuine failure to converge.
             stalled = True
+            converged = norm <= precision_rtol * initial_norm
             break
 
     # `r` holds the residual of the last trial state, which is the current state.

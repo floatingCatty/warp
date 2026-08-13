@@ -330,6 +330,16 @@ class CoupledResidual2D:
 
         self.conduction.scatter_element_source(self._element_work, out)
 
+    def reference_norm(self) -> float:
+        """Norm of the applied load, the characteristic scale of the residual.
+
+        Newton measures convergence against this rather than against the initial residual,
+        so a warm start from a neighbouring design is held to the same standard as a cold
+        one instead of to an unreachable fraction of its own small starting residual.
+        """
+        f = self._source.numpy()
+        return float((f @ f) ** 0.5)
+
     def project(self, v: wp.array):
         """Restrict ``v`` to the free subspace."""
         if self.dirichlet is not None:

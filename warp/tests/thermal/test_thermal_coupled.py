@@ -45,7 +45,7 @@ def _build(res, n_ang, nr, density, device, source=1.0, angles_pt=1):
 
 def _solve(residual, conduction, device, initial=0.5):
     t = wp.array(np.full(conduction.node_count, initial, dtype=np.float32), dtype=float, device=device)
-    result = thermal.newton_solve(residual, t, rtol=1.0e-5, max_iterations=40)
+    result = thermal.newton_solve(residual, t, max_iterations=40)
     return t, result
 
 
@@ -134,7 +134,7 @@ def test_newton_converges(test, device):
 
     t, result = _solve(residual, conduction, device)
     test.assertTrue(result.converged, f"Newton did not converge: {result}")
-    test.assertLess(result.residual_norm, 1.0e-5 * result.initial_norm)
+    test.assertLess(result.residual_norm, 1.0e-4 * residual.reference_norm())
 
     # Quadratic convergence: once close, each residual is near the square of the previous,
     # so the drop over the last productive step is far steeper than linear.

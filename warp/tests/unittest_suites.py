@@ -255,6 +255,7 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
     from warp.tests.thermal.test_thermal_coupled import TestThermalCoupled
     from warp.tests.thermal.test_thermal_grid import TestThermalGrid
     from warp.tests.thermal.test_thermal_operator import TestThermalOperator
+    from warp.tests.thermal.test_thermal_optimization import TestThermalOptimization
     from warp.tests.thermal.test_thermal_transport import TestThermalTransport
     from warp.tests.tile.test_tile import TestTile
     from warp.tests.tile.test_tile_atomic_bitwise import TestTileAtomicBitwise
@@ -430,6 +431,7 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestThermalCoupled,
         TestThermalGrid,
         TestThermalOperator,
+        TestThermalOptimization,
         TestThermalTransport,
         TestTile,
         TestTileAtomicBitwise,
