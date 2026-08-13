@@ -26,9 +26,7 @@ exists is an implementation detail of the forward path, not a property of the op
 from __future__ import annotations
 
 import warp as wp
-from warp._src.thermal.volumetric import transport as _transport
 from warp._src.thermal.volumetric.exchange import ExchangeMatrix
-from warp._src.thermal.volumetric.paths import RayPaths
 
 __all__ = ["VolumetricRadiationOperator"]
 
@@ -39,7 +37,10 @@ class VolumetricRadiationOperator:
     """Radiative exchange between elements of a participating medium.
 
     Args:
-        paths: Cached ray traversal topology of the domain.
+        rays: Ray bundle over the domain, either a
+            :class:`~warp._src.thermal.volumetric.paths.RayPaths` holding its traversals
+            explicitly or a :class:`~warp._src.thermal.volumetric.grid.GridRayBundle2D`
+            generating them on the fly.
         element_count: Number of elements in the domain.
         backend: ``"assembled"`` to always assemble the exchange factors, ``"march"`` to
             always re-march rays, or ``"auto"`` to decide from problem size.
@@ -65,7 +66,7 @@ class VolumetricRadiationOperator:
 
     def __init__(
         self,
-        paths: RayPaths,
+        rays,
         element_count: int,
         backend: str = "auto",
         assembly_limit_bytes: int = _DEFAULT_ASSEMBLY_LIMIT,
@@ -74,16 +75,17 @@ class VolumetricRadiationOperator:
         if backend not in ("auto", "assembled", "march"):
             raise ValueError(f"Unknown backend '{backend}', expected 'auto', 'assembled', or 'march'")
 
-        self.paths = paths
+        self.rays = rays
         self.element_count = element_count
-        self.device = device if device is not None else paths.device
+        self.device = device if device is not None else rays.device
 
         required = ExchangeMatrix.storage_bytes(element_count)
-        self.work_ratio = (element_count * element_count) / max(paths.step_count, 1)
+        step_count = rays.step_count
+        self.work_ratio = (element_count * element_count) / max(step_count, 1)
 
         if backend == "auto":
             fits = required <= assembly_limit_bytes
-            cheaper = element_count * element_count <= paths.step_count
+            cheaper = element_count * element_count <= step_count
             backend = "assembled" if (fits and cheaper) else "march"
 
         self.backend = backend
@@ -104,7 +106,7 @@ class VolumetricRadiationOperator:
         """
         self._absorptivity = absorptivity
         if self._exchange is not None:
-            self._exchange.assemble(self.paths, absorptivity)
+            self.rays.assemble(self._exchange, absorptivity)
 
     def apply(self, emissive: wp.array, irradiation: wp.array, environment_emissive: wp.array):
         """Accumulate incident radiative power on every element.
@@ -122,7 +124,7 @@ class VolumetricRadiationOperator:
         if self._exchange is not None:
             self._exchange.apply(emissive, irradiation, environment_emissive)
         else:
-            _transport.transport(self.paths, self._absorptivity, emissive, irradiation, environment_emissive)
+            self.rays.transport(self._absorptivity, emissive, irradiation, environment_emissive)
 
     def apply_transpose(self, v: wp.array, out: wp.array, out_environment: wp.array):
         """Apply the transpose of the emissive-power tangent to ``v``.
@@ -139,7 +141,7 @@ class VolumetricRadiationOperator:
         if self._exchange is not None:
             self._exchange.apply_transpose(v, out, out_environment)
         else:
-            _transport.transport_transpose(self.paths, self._absorptivity, v, out, out_environment)
+            self.rays.transport_transpose(self._absorptivity, v, out, out_environment)
 
     def vjp(
         self,
@@ -159,8 +161,7 @@ class VolumetricRadiationOperator:
         Adjoint outputs are accumulated, not overwritten, matching Warp's tape convention.
         """
         self._require_update()
-        _transport.transport_vjp(
-            self.paths,
+        self.rays.transport_vjp(
             self._absorptivity,
             emissive,
             environment_emissive,

@@ -45,6 +45,7 @@ _register_module_source("warp.optim.linear", "warp._src.optim.linear")
 _register_module_source("warp.optim.sgd", "warp._src.optim.sgd")
 
 _register_module_source("warp.thermal.volumetric.exchange", "warp._src.thermal.volumetric.exchange")
+_register_module_source("warp.thermal.volumetric.grid", "warp._src.thermal.volumetric.grid")
 _register_module_source("warp.thermal.volumetric.operator", "warp._src.thermal.volumetric.operator")
 _register_module_source("warp.thermal.volumetric.paths", "warp._src.thermal.volumetric.paths")
 _register_module_source("warp.thermal.volumetric.transport", "warp._src.thermal.volumetric.transport")

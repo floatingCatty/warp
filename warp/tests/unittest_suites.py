@@ -251,6 +251,7 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
     from warp.tests.test_vec_scalar_ops import TestVecScalarOps
     from warp.tests.test_verify_fp import TestVerifyFP
     from warp.tests.test_version import TestVersion
+    from warp.tests.thermal.test_thermal_grid import TestThermalGrid
     from warp.tests.thermal.test_thermal_operator import TestThermalOperator
     from warp.tests.thermal.test_thermal_transport import TestThermalTransport
     from warp.tests.tile.test_tile import TestTile
@@ -423,6 +424,7 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestTape,
         TestTemplateLaunchBounds,
         TestTexture,
+        TestThermalGrid,
         TestThermalOperator,
         TestThermalTransport,
         TestTile,

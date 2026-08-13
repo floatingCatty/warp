@@ -82,6 +82,61 @@ class RayPaths:
         """Total number of traversal steps across all rays."""
         return self.cells.shape[0]
 
+    # The methods below mirror `GridRayBundle2D`, so a radiation operator can take either
+    # an explicitly stored bundle or an implicit one without knowing which it holds.
+
+    def assemble(self, exchange, absorptivity: wp.array):
+        """Accumulate exchange factors into ``exchange``."""
+        exchange.assemble(self, absorptivity)
+
+    def transport(
+        self,
+        absorptivity: wp.array,
+        emissive: wp.array,
+        irradiation: wp.array,
+        environment_emissive: wp.array,
+    ):
+        """Accumulate incident radiative power on every element."""
+        from warp._src.thermal.volumetric import transport as _transport  # noqa: PLC0415
+
+        _transport.transport(self, absorptivity, emissive, irradiation, environment_emissive)
+
+    def transport_transpose(
+        self,
+        absorptivity: wp.array,
+        v: wp.array,
+        out: wp.array,
+        out_environment: wp.array,
+    ):
+        """Apply the transpose of the emissive-power tangent to ``v``."""
+        from warp._src.thermal.volumetric import transport as _transport  # noqa: PLC0415
+
+        _transport.transport_transpose(self, absorptivity, v, out, out_environment)
+
+    def transport_vjp(
+        self,
+        absorptivity: wp.array,
+        emissive: wp.array,
+        environment_emissive: wp.array,
+        adj_irradiation: wp.array,
+        adj_absorptivity: wp.array,
+        adj_emissive: wp.array,
+        adj_environment_emissive: wp.array,
+    ):
+        """Accumulate the vector-Jacobian product of :meth:`transport`."""
+        from warp._src.thermal.volumetric import transport as _transport  # noqa: PLC0415
+
+        _transport.transport_vjp(
+            self,
+            absorptivity,
+            emissive,
+            environment_emissive,
+            adj_irradiation,
+            adj_absorptivity,
+            adj_emissive,
+            adj_environment_emissive,
+        )
+
     @staticmethod
     def from_numpy(
         source: np.ndarray,
