@@ -247,10 +247,57 @@ backend crossover may move on GPU and should be re-measured.
 | M2        | Radiative transport primitive and its adjoint                   | Done        |
 | M2b       | Forward/adjoint strategy split; implicit grid ray bundles       | Done        |
 | M1        | Conduction operator; coupled nonlinear solve; implicit adjoint  | Done        |
-| M3        | Reproduce the reference 2D radiative heat sink                  | Planned     |
+| M3        | Reproduce the reference 2D radiative heat sink                  | In progress |
 | M4        | Regime B: explicit deformed geometry, surface radiation         | Planned     |
 | M5        | Gray radiosity; deployable radiator demonstration               | Planned     |
 
 The reference reproduction (M3) establishes credibility and stops there. The published 3D and
 radiation-shield cases are the reference authors' research questions, not this module's, and
 are revisited only if a scaling number is wanted. Regime B is the point.
+
+## Current state
+
+Everything M3 needs is built and verified: transport, exchange assembly, implicit ray bundles,
+conduction, the coupled residual, the implicit adjoint, the density filter, optimality criteria,
+and `warp/examples/thermal/example_radiative_heat_sink.py`. The design loop descends
+monotonically and holds the volume constraint exactly.
+
+**The reproduction itself has not been run.** No converged design exists, and neither the
+objective nor the structure has been compared with the published result. Running it is the
+next action:
+
+```
+python -u warp/examples/thermal/example_radiative_heat_sink.py --resolution 60 --iterations 200
+```
+
+The example prints the published objective and the percentage difference automatically when the
+configuration matches. Two things to check, not one: the converged objective against
+`6.9041e-4`, and the structure against the published figure — thick branches from the source to
+the upper corners, thin ones to the lower corners, with corners filled. The second is the
+substantive check, since a plausible objective can come from a different structure.
+
+Discard any earlier objective trajectory recorded outside this document: values produced before
+the objective was switched to its integral form used a gradient weighted for the mean, which is
+wrong by the ratio of the two definitions and scaled the descent direction accordingly.
+
+### Known gaps
+
+- **No end-to-end finite-difference check of the design gradient.** The objective's response to
+  a design perturbation sits at the single-precision noise floor, where the difference quotient
+  varies by more than the quantity it is measuring, and the tolerance needed to fix that is
+  unreachable in `float32`. The chain is verified link by link instead: the density VJP against
+  finite differences, the filter transpose by adjoint identity, the SIMP derivatives
+  analytically, and `dJ/dT` against the objective directly. That is sound but weaker than one
+  end-to-end check, and it is how a factor-of-16 error in `dJ/dT` survived until the last link
+  got its own test. A `float64` path would close this.
+- **CPU only so far.** Every measurement in this document was taken single-threaded, because
+  Warp's CPU backend runs a serial loop over the launch dimension. The assemble-versus-march
+  crossover, the cost of one design iteration, and the choice of dense over sparse exchange
+  factors should all be re-measured on GPU before being treated as settled.
+- **Host synchronization in the solver loop.** Newton reads the residual norm back to the host
+  every iteration and inside the line search, and optimality criteria does one readback per
+  bisection step. Free on CPU, a sync point per call on GPU. If a GPU profile looks
+  latency-bound rather than bandwidth-bound, this is why.
+- **Preconditioning is weak.** Jacobi uses the conduction diagonal plus the local emission term
+  and ignores the radiative coupling entirely, which is what dominates the tangent at
+  `N_R = 1`. Around 46 Krylov iterations per Newton step suggests real headroom.
