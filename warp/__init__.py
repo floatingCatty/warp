@@ -44,6 +44,9 @@ _register_module_source("warp.optim.adam", "warp._src.optim.adam")
 _register_module_source("warp.optim.linear", "warp._src.optim.linear")
 _register_module_source("warp.optim.sgd", "warp._src.optim.sgd")
 
+_register_module_source("warp.thermal.volumetric.paths", "warp._src.thermal.volumetric.paths")
+_register_module_source("warp.thermal.volumetric.transport", "warp._src.thermal.volumetric.transport")
+
 _register_module_source("warp.render.imgui_manager", "warp._src.render.imgui_manager")
 _register_module_source("warp.render.render_opengl", "warp._src.render.render_opengl")
 _register_module_source("warp.render.render_usd", "warp._src.render.render_usd")
