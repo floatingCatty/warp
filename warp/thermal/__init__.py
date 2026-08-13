@@ -18,6 +18,10 @@ Usage:
 # The source-to-public Warp module declarations for `warp.thermal` live in the
 # top-level `warp/__init__.py`, so they are in effect before these imports run.
 
+from warp._src.thermal.material import absorptivity_from_density as absorptivity_from_density
+from warp._src.thermal.material import conductivity_from_density as conductivity_from_density
+from warp._src.thermal.volumetric.conduction import ConductionOperator2D as ConductionOperator2D
+from warp._src.thermal.volumetric.conduction import DirichletMask as DirichletMask
 from warp._src.thermal.volumetric.exchange import ExchangeMatrix as ExchangeMatrix
 from warp._src.thermal.volumetric.grid import GridRayBundle2D as GridRayBundle2D
 from warp._src.thermal.volumetric.operator import VolumetricRadiationOperator as VolumetricRadiationOperator
